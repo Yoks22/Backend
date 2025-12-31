@@ -1,0 +1,834 @@
+"""
+Flask REST API Backend for Zoho Bigin Integration
+Consolidated version with all features - CORRECTED
+"""
+
+from flask import Flask, jsonify, request, send_file
+from flask_cors import CORS
+from dotenv import load_dotenv
+from flask_sqlalchemy import SQLAlchemy
+from config import Config
+from models import db, Contact, Account, Pipeline, Call, Event, Task, Note, SyncLog
+from zoho_client import ZohoClient
+from scheduler import start_scheduler, manual_sync
+from datetime import datetime, timedelta, UTC # CHANGE 1: Added UTC for timezone-aware datetime
+import traceback
+import os
+import io
+import pandas as pd
+
+## Initialize Flask app
+app = Flask(__name__)
+
+# 1. Load the .env file
+load_dotenv()
+
+# 2. Get origins from .env or use a default if .env is missing
+env_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+allowed_origins = [origin.strip() for origin in env_origins.split(",")]
+
+cfg = Config()
+app.config['SQLALCHEMY_DATABASE_URI'] = cfg.SQLALCHEMY_DATABASE_URI
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# 3. Apply the dynamic origins to CORS
+CORS(app, resources={
+    r"/*": {
+        "origins": allowed_origins,
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
+
+# Initialize database
+db.init_app(app)
+
+# Initialize Zoho client
+client = ZohoClient(cfg)
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def get_module_stats():
+    """Get record counts for all modules"""
+    return {
+        'contacts': Contact.query.count(),
+        'accounts': Account.query.count(),
+        'pipelines': Pipeline.query.count(),
+        'calls': Call.query.count(),
+        'events': Event.query.count(),
+        'tasks': Task.query.count(),
+        'notes': Note.query.count()
+    }
+
+
+def format_modules_array(stats):
+    """Format stats dictionary as modules array for frontend"""
+    module_names = ['Contacts', 'Accounts', 'Pipelines', 'Calls', 'Events', 'Tasks', 'Notes']
+    modules = []
+
+    for name in module_names:
+        key = name.lower()
+        modules.append({
+            'name': name,
+            'records': stats.get(key, 0)
+        })
+
+    return modules
+
+
+# ============================================================================
+# ROOT & HEALTH ENDPOINTS
+# ============================================================================
+
+@app.route('/')
+def home():
+    """API root endpoint with documentation"""
+    return jsonify({
+        'message': 'Zoho Bigin Sync API',
+        'version': '2.0',
+        'status': 'running',
+        'frontend': 'http://localhost:3000',
+        'endpoints': {
+            'GET /': 'API documentation',
+            'GET /api/health': 'Health check',
+            'GET /api/status': 'System status',
+            'GET /api/stats': 'Record counts',
+            'GET /api/stats/detailed': 'Detailed statistics',
+            'GET /api/overview': 'Overview with modules array',
+            'GET /api/modules': 'List available modules with counts',
+            'POST /api/sync': 'Trigger manual sync',
+            'GET /api/sync/logs': 'View sync history',
+            'GET /api/logs': 'Alias for sync logs',
+            'GET /api/contacts': 'List contacts (pagination)',
+            'GET /api/contacts/<id>': 'Get contact detail',
+            'GET /api/accounts': 'List accounts (pagination)',
+            'GET /api/accounts/<id>': 'Get account detail',
+            'GET /api/pipelines': 'List pipelines (pagination)',
+            'GET /api/pipelines/<id>': 'Get pipeline detail',
+            'GET /api/calls': 'List calls (pagination)',
+            'GET /api/events': 'List events (pagination)',
+            'GET /api/tasks': 'List tasks (pagination)',
+            'GET /api/notes': 'List notes (pagination)',
+            'GET /api/export/contacts': 'Export contacts to Excel',
+            'GET /api/export/accounts': 'Export accounts to Excel',
+            'GET /api/export/pipelines': 'Export pipelines to Excel',
+            'GET /api/export/calls': 'Export calls to Excel',
+            'GET /api/export/events': 'Export events to Excel',
+            'GET /api/export/tasks': 'Export tasks to Excel',
+            'GET /api/export/notes': 'Export notes to Excel'
+        },
+        'database': {
+            'host': cfg.MYSQL_HOST,
+            'port': cfg.MYSQL_PORT,
+            'database': cfg.MYSQL_DB
+        }
+    })
+
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now(UTC).isoformat(), # CHANGE 2: Fix DeprecationWarning
+        'database': 'connected',
+        'api_version': '2.0'
+    })
+
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    """Get system status with database info"""
+    try:
+        # Test database connection
+        db.session.execute(db.text('SELECT 1'))
+
+        return jsonify({
+            'status': 'online',
+            'timestamp': datetime.now(UTC).isoformat(), # CHANGE 3: Fix DeprecationWarning
+            'database': {
+                'status': 'connected',
+                'host': cfg.MYSQL_HOST,
+                'database': cfg.MYSQL_DB
+            },
+            'zoho': {
+                'base_url': cfg.BASE_URL,
+                'sync_interval': 'Every Saturday at midnight'
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
+# ============================================================================
+# OVERVIEW ENDPOINT (NEW - For Frontend)
+# ============================================================================
+
+@app.route('/api/overview', methods=['GET'])
+def get_overview():
+    """Get overview with modules array format for frontend"""
+    try:
+        stats = get_module_stats()
+        modules = format_modules_array(stats)
+
+        # Get last sync info
+        last_sync = SyncLog.query.order_by(SyncLog.finished_at.desc()).first()
+
+        return jsonify({
+            'ok': True,
+            'modules': modules,
+            'total_records': sum(stats.values()),
+            'last_sync': {
+                'timestamp': last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None,
+                'status': last_sync.status if last_sync else None,
+                'module': last_sync.module if last_sync else None,
+                'records_synced': last_sync.records_synced if last_sync else 0,
+                'finished_at': last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None
+            },
+            'timestamp': datetime.now(UTC).isoformat() # CHANGE 4: Fix DeprecationWarning (Corresponds to line 189 in your log snippet)
+        })
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'error': str(e)
+        }), 500
+
+
+# ============================================================================
+# MODULES ENDPOINT (UPDATED)
+# ============================================================================
+
+@app.route('/api/modules', methods=['GET'])
+def list_modules():
+    """List all available modules with record counts"""
+    try:
+        stats = get_module_stats()
+        modules = format_modules_array(stats)
+
+        return jsonify({
+            'ok': True,
+            'modules': modules,
+            'timestamp': datetime.now(UTC).isoformat() # CHANGE 5: Fix DeprecationWarning (Corresponds to line 212 in your log snippet)
+        })
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'error': str(e)
+        }), 500
+
+
+# ============================================================================
+# STATISTICS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """Get record counts for all modules"""
+    try:
+        stats = get_module_stats()
+
+        # Get last sync info
+        last_sync = SyncLog.query.order_by(SyncLog.finished_at.desc()).first()
+
+        return jsonify({
+            'stats': stats,
+            'total_records': sum(stats.values()),
+            'last_sync': {
+                'timestamp': last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None,
+                'status': last_sync.status if last_sync else None
+            },
+            'timestamp': datetime.now(UTC).isoformat() # CHANGE 6: Fix DeprecationWarning
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stats/detailed', methods=['GET'])
+def get_detailed_stats():
+    """Get detailed statistics including recent activity"""
+    try:
+        # Basic counts
+        stats = get_module_stats()
+
+        # Recent activity (last 7 days)
+        week_ago = datetime.now(UTC) - timedelta(days=7) # Note: Comparing naive/aware is usually bad, but this code is already written. Let's make this aware for consistency. The database created_time columns should ideally be aware.
+        recent_stats = {
+            'contacts': Contact.query.filter(Contact.created_time >= week_ago).count(),
+            'accounts': Account.query.filter(Account.created_time >= week_ago).count(),
+            'pipelines': Pipeline.query.filter(Pipeline.created_time >= week_ago).count(),
+            'calls': Call.query.filter(Call.created_time >= week_ago).count(),
+            'events': Event.query.filter(Event.created_time >= week_ago).count(),
+            'tasks': Task.query.filter(Task.created_time >= week_ago).count(),
+            'notes': Note.query.filter(Note.created_time >= week_ago).count()
+        }
+
+        # Pipeline statistics
+        pipeline_stats = db.session.query(
+            Pipeline.stage,
+            db.func.count(Pipeline.id).label('count'),
+            db.func.sum(Pipeline.amount).label('total_amount')
+        ).group_by(Pipeline.stage).all()
+
+        pipeline_by_stage = [
+            {
+                'stage': stage,
+                'count': count,
+                'total_amount': float(total_amount) if total_amount else 0
+            }
+            for stage, count, total_amount in pipeline_stats
+        ]
+
+        return jsonify({
+            'total_counts': stats,
+            'recent_activity': recent_stats,
+            'pipeline_by_stage': pipeline_by_stage,
+            'timestamp': datetime.now(UTC).isoformat() # CHANGE 7: Fix DeprecationWarning
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# CONTACTS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/contacts', methods=['GET'])
+def get_contacts():
+    """Get contacts with pagination and filtering"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        per = request.args.get('per', per_page, type=int)  # Support both per_page and per
+        search = request.args.get('search', '')
+
+        query = Contact.query
+
+        # Apply search filter
+        if search:
+            query = query.filter(
+                db.or_(
+                    Contact.full_name.like(f'%{search}%'),
+                    Contact.email.like(f'%{search}%'),
+                    Contact.phone.like(f'%{search}%')
+                )
+            )
+
+        # Order by most recent
+        query = query.order_by(Contact.created_time.desc())
+
+        # Paginate
+        pagination = query.paginate(page=page, per_page=per, error_out=False)
+
+        contacts = [{
+            'id': c.id,
+            'zoho_id': c.zoho_id,
+            'full_name': c.full_name,
+            'email': c.email,
+            'phone': c.phone,
+            'mobile': c.mobile,
+            'account_name': c.account_name,
+            'title': c.title,
+            'owner_name': c.owner_name,
+            'created_time': c.created_time.isoformat() if c.created_time else None,
+            'modified_time': c.modified_time.isoformat() if c.modified_time else None
+        } for c in pagination.items]
+
+        return jsonify({
+            'contacts': contacts,
+            'items': contacts,  # Alias for compatibility
+            'pagination': {
+                'page': page,
+                'per_page': per,
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'has_next': pagination.has_next,
+                'has_prev': pagination.has_prev
+            },
+            'total': pagination.total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/contacts/<int:contact_id>', methods=['GET'])
+def get_contact_detail(contact_id):
+    """Get single contact details"""
+    try:
+        contact = Contact.query.get_or_404(contact_id)
+        return jsonify(contact.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# ACCOUNTS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/accounts', methods=['GET'])
+def get_accounts():
+    """Get accounts with pagination and filtering"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        per = request.args.get('per', per_page, type=int)
+        search = request.args.get('search', '')
+
+        query = Account.query
+
+        if search:
+            query = query.filter(
+                db.or_(
+                    Account.account_name.like(f'%{search}%'),
+                    Account.phone.like(f'%{search}%')
+                )
+            )
+
+        query = query.order_by(Account.created_time.desc())
+        pagination = query.paginate(page=page, per_page=per, error_out=False)
+
+        accounts = [{
+            'id': a.id,
+            'zoho_id': a.zoho_id,
+            'account_name': a.account_name,
+            'phone': a.phone,
+            'website': a.website,
+            'owner_name': a.owner_name,
+            'billing_city': a.billing_city,
+            'billing_country': a.billing_country,
+            'created_time': a.created_time.isoformat() if a.created_time else None,
+            'modified_time': a.modified_time.isoformat() if a.modified_time else None
+        } for a in pagination.items]
+
+        return jsonify({
+            'accounts': accounts,
+            'items': accounts,
+            'pagination': {
+                'page': page,
+                'per_page': per,
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'has_next': pagination.has_next,
+                'has_prev': pagination.has_prev
+            },
+            'total': pagination.total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/accounts/<int:account_id>', methods=['GET'])
+def get_account_detail(account_id):
+    """Get single account details"""
+    try:
+        account = Account.query.get_or_404(account_id)
+        return jsonify(account.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PIPELINES ENDPOINTS
+# ============================================================================
+
+@app.route('/api/pipelines', methods=['GET'])
+def get_pipelines():
+    """Get pipelines with pagination and filtering"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        per = request.args.get('per', per_page, type=int)
+        stage = request.args.get('stage', '')
+
+        query = Pipeline.query
+
+        if stage:
+            query = query.filter(Pipeline.stage == stage)
+
+        query = query.order_by(Pipeline.created_time.desc())
+        pagination = query.paginate(page=page, per_page=per, error_out=False)
+
+        pipelines = [{
+            'id': p.id,
+            'zoho_id': p.zoho_id,
+            'deal_name': p.deal_name,
+            'account_name': p.account_name,
+            'stage': p.stage,
+            'amount': float(p.amount) if p.amount else 0,
+            'closing_date': p.closing_date.isoformat() if p.closing_date else None,
+            'owner_name': p.owner_name,
+            'probability': float(p.probability) if p.probability else 0,
+            'created_time': p.created_time.isoformat() if p.created_time else None
+        } for p in pagination.items]
+
+        return jsonify({
+            'pipelines': pipelines,
+            'items': pipelines,
+            'pagination': {
+                'page': page,
+                'per_page': per,
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'has_next': pagination.has_next,
+                'has_prev': pagination.has_prev
+            },
+            'total': pagination.total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pipelines/<int:pipeline_id>', methods=['GET'])
+def get_pipeline_detail(pipeline_id):
+    """Get single pipeline details"""
+    try:
+        pipeline = Pipeline.query.get_or_404(pipeline_id)
+        return jsonify(pipeline.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# CALLS, EVENTS, TASKS, NOTES ENDPOINTS
+# ============================================================================
+
+@app.route('/api/calls', methods=['GET'])
+def get_calls():
+    """Get calls with pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        per = request.args.get('per', per_page, type=int)
+
+        query = Call.query.order_by(Call.created_time.desc())
+        pagination = query.paginate(page=page, per_page=per, error_out=False)
+
+        calls = [{
+            'id': c.id,
+            'zoho_id': c.zoho_id,
+            'subject': c.subject,
+            'call_type': c.call_type,
+            'call_status': c.call_status,
+            'call_duration': c.call_duration,
+            'call_start_time': c.call_start_time.isoformat() if c.call_start_time else None,
+            'owner_name': c.owner_name,
+            'created_time': c.created_time.isoformat() if c.created_time else None
+        } for c in pagination.items]
+
+        return jsonify({
+            'calls': calls,
+            'items': calls,
+            'pagination': {
+                'page': page,
+                'per_page': per,
+                'total': pagination.total,
+                'pages': pagination.pages
+            },
+            'total': pagination.total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/events', methods=['GET'])
+def get_events():
+    """Get events with pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        per = request.args.get('per', per_page, type=int)
+
+        query = Event.query.order_by(Event.start_datetime.desc())
+        pagination = query.paginate(page=page, per_page=per, error_out=False)
+
+        events = [{
+            'id': e.id,
+            'zoho_id': e.zoho_id,
+            'event_title': e.event_title,
+            'start_datetime': e.start_datetime.isoformat() if e.start_datetime else None,
+            'end_datetime': e.end_datetime.isoformat() if e.end_datetime else None,
+            'venue': e.venue,
+            'owner_name': e.owner_name,
+            'created_time': e.created_time.isoformat() if e.created_time else None
+        } for e in pagination.items]
+
+        return jsonify({
+            'events': events,
+            'items': events,
+            'pagination': {
+                'page': page,
+                'per_page': per,
+                'total': pagination.total,
+                'pages': pagination.pages
+            },
+            'total': pagination.total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tasks', methods=['GET'])
+def get_tasks():
+    """Get tasks with pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        per = request.args.get('per', per_page, type=int)
+
+        query = Task.query.order_by(Task.due_date.desc())
+        pagination = query.paginate(page=page, per_page=per, error_out=False)
+
+        tasks = [{
+            'id': t.id,
+            'zoho_id': t.zoho_id,
+            'subject': t.subject,
+            'status': t.status,
+            'priority': t.priority,
+            'due_date': t.due_date.isoformat() if t.due_date else None,
+            'owner_name': t.owner_name,
+            'created_time': t.created_time.isoformat() if t.created_time else None
+        } for t in pagination.items]
+
+        return jsonify({
+            'tasks': tasks,
+            'items': tasks,
+            'pagination': {
+                'page': page,
+                'per_page': per,
+                'total': pagination.total,
+                'pages': pagination.pages
+            },
+            'total': pagination.total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notes', methods=['GET'])
+def get_notes():
+    """Get notes with pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        per = request.args.get('per', per_page, type=int)
+
+        query = Note.query.order_by(Note.created_time.desc())
+        pagination = query.paginate(page=page, per_page=per, error_out=False)
+
+        notes = [{
+            'id': n.id,
+            'zoho_id': n.zoho_id,
+            'note_title': n.note_title,
+            'note_content': n.note_content[:200] if n.note_content else '',
+            'owner_name': n.owner_name,
+            'parent_id_name': n.parent_id_name,
+            'created_time': n.created_time.isoformat() if n.created_time else None
+        } for n in pagination.items]
+
+        return jsonify({
+            'notes': notes,
+            'items': notes,
+            'pagination': {
+                'page': page,
+                'per_page': per,
+                'total': pagination.total,
+                'pages': pagination.pages
+            },
+            'total': pagination.total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# EXPORT ENDPOINTS
+# ============================================================================
+
+@app.route('/api/export/<module>', methods=['GET'])
+def export_module(module):
+    """Export module data to Excel"""
+    try:
+        model_map = {
+            'contacts': Contact,
+            'accounts': Account,
+            'pipelines': Pipeline,
+            'calls': Call,
+            'events': Event,
+            'tasks': Task,
+            'notes': Note
+        }
+
+        model = model_map.get(module.lower())
+        if not model:
+            return jsonify({'error': 'unknown module'}), 404
+
+        records = model.query.all()
+        data_list = [r.to_dict() for r in records]
+
+        # Remove the 'data' column from export as it contains raw JSON
+        for item in data_list:
+            if 'data' in item:
+                del item['data']
+
+        df = pd.DataFrame(data_list)
+
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name=module.capitalize())
+        output.seek(0)
+
+        filename = f'{module}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# SYNC ENDPOINTS (UPDATED)
+# ============================================================================
+
+@app.route('/api/sync', methods=['POST'])
+def trigger_sync():
+    """Trigger manual synchronization with proper response format"""
+    try:
+        success, message, details = manual_sync(client)
+
+        # Format result properly for frontend
+        result = {}
+        if details:
+            for module_name, module_data in details.items():
+                if isinstance(module_data, dict):
+                    # Extract record count from message like "Inserted: 5, Updated: 10, Deleted: 2"
+                    msg = module_data.get('msg', '')
+                    total = 0
+
+                    # Parse the sync message to get total records
+                    if 'Inserted:' in msg or 'Updated:' in msg:
+                        parts = msg.split(',')
+                        for part in parts:
+                            if 'Inserted:' in part or 'Updated:' in part:
+                                try:
+                                    num = int(part.split(':')[1].strip().split()[0])
+                                    total += num
+                                except:
+                                    pass
+                    result[module_name] = total
+
+        return jsonify({
+            'ok': success,
+            'success': success,
+            'message': message,
+            'result': result,
+            'details': details,
+            'timestamp': datetime.now(UTC).isoformat() # CHANGE 8: Fix DeprecationWarning (Corresponds to line 730 in your log snippet)
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'ok': False,
+            'success': False,
+            'error': str(e),
+            'message': str(e),
+            'timestamp': datetime.now(UTC).isoformat() # CHANGE 9: Fix DeprecationWarning
+        }), 500
+
+
+@app.route('/api/sync/logs', methods=['GET'])
+def get_sync_logs():
+    """Get sync history logs"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+
+        logs = SyncLog.query.order_by(SyncLog.started_at.desc()).limit(limit).all()
+
+        log_list = [{
+            'id': log.id,
+            'module': log.module,
+            'started_at': log.started_at.isoformat() if log.started_at else None,
+            'finished_at': log.finished_at.isoformat() if log.finished_at else None,
+            'status': log.status,
+            'message': log.message,
+            'records_synced': log.records_synced
+        } for log in logs]
+
+        return jsonify({
+            'logs': log_list,
+            'total': len(log_list)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/logs', methods=['GET'])
+def get_logs_alias():
+    """Alias for /api/sync/logs for backward compatibility"""
+    return get_sync_logs()
+
+
+@app.route('/api/sync_logs', methods=['GET'])
+def sync_logs_alias():
+    """Another alias for /api/sync/logs for backward compatibility"""
+    return get_sync_logs()
+
+
+# ============================================================================
+# STARTUP FUNCTION
+# ============================================================================
+
+def startup_sync():
+    """Run initial sync on startup"""
+    print('=== STARTUP SYNC ===')
+    try:
+        with app.app_context():
+            res = client.sync_all()
+            print('Startup sync result:', res)
+    except Exception as e:
+        print('Startup sync failed:', e)
+        traceback.print_exc()
+    print('=== STARTUP SYNC END ===')
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+if __name__ == '__main__':
+    with app.app_context():
+        # Create tables if they don't exist
+        print("Initializing database...")
+        db.create_all()
+        print("Database tables created successfully")
+
+    # FIX: This check prevents the scheduler from starting twice in debug mode
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        # Run immediate startup sync to fetch data on boot
+        startup_sync()
+
+        # Start scheduler
+        # Note: We don't need interval_hours anymore because scheduler.py
+        # now handles the Saturday midnight logic internally.
+        start_scheduler(app, client)
+
+    # Run Flask app
+    print("\n" + "=" * 60)
+    print("🚀 Flask API Server Starting...")
+    print("=" * 60)
+    print(f"📡 API Endpoint: http://localhost:5000")
+    print(f"🌐 React Frontend: http://localhost:3000")
+    print(f"📊 Database: {cfg.MYSQL_DB}")
+    print("=" * 60 + "\n")
+
+    app.run(host='0.0.0.0', port=5000, debug=True)
