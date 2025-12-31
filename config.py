@@ -7,14 +7,21 @@ load_dotenv()
 
 
 class Config:
-    MYSQL_USER = os.getenv("MYSQL_USER", "vdi")
-    MYSQL_PASSWORD: str = os.getenv("MYSQL_PASSWORD", "Qwerty$123")
-    MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
+    MYSQL_USER = os.getenv("MYSQL_USER") #, "vdi")
+    MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD") #, "Qwerty123")
+    MYSQL_HOST = os.getenv("MYSQL_HOST") #, "mysql-db")  # IMPORTANT: Docker service name
     MYSQL_PORT = int(os.getenv("MYSQL_PORT", 3306))
-    MYSQL_DB = os.getenv("MYSQL_DB", "zoho_db")
+    MYSQL_DB = os.getenv("MYSQL_DB") #, "zoho_db")
 
-    # The connection string that tells SQLAlchemy to use PyMySQL
-    SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
+    # URL encode credentials (MANDATORY for special chars)
+    ENCODED_USER = quote_plus(MYSQL_USER)
+    ENCODED_PASSWORD = quote_plus(MYSQL_PASSWORD)
+
+    # SQLAlchemy connection string
+    SQLALCHEMY_DATABASE_URI = (
+        f"mysql+pymysql://{ENCODED_USER}:{ENCODED_PASSWORD}"
+        f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
+    )
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
