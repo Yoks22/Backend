@@ -94,32 +94,32 @@ def home():
         'frontend': 'http://localhost:3000',
         'endpoints': {
             'GET /': 'API documentation',
-            'GET /api/health': 'Health check',
-            'GET /api/status': 'System status',
-            'GET /api/stats': 'Record counts',
-            'GET /api/stats/detailed': 'Detailed statistics',
-            'GET /api/overview': 'Overview with modules array',
-            'GET /api/modules': 'List available modules with counts',
-            'POST /api/sync': 'Trigger manual sync',
-            'GET /api/sync/logs': 'View sync history',
-            'GET /api/logs': 'Alias for sync logs',
-            'GET /api/contacts': 'List contacts (pagination)',
-            'GET /api/contacts/<id>': 'Get contact detail',
-            'GET /api/accounts': 'List accounts (pagination)',
-            'GET /api/accounts/<id>': 'Get account detail',
-            'GET /api/pipelines': 'List pipelines (pagination)',
-            'GET /api/pipelines/<id>': 'Get pipeline detail',
-            'GET /api/calls': 'List calls (pagination)',
-            'GET /api/events': 'List events (pagination)',
-            'GET /api/tasks': 'List tasks (pagination)',
-            'GET /api/notes': 'List notes (pagination)',
-            'GET /api/export/contacts': 'Export contacts to Excel',
-            'GET /api/export/accounts': 'Export accounts to Excel',
-            'GET /api/export/pipelines': 'Export pipelines to Excel',
-            'GET /api/export/calls': 'Export calls to Excel',
-            'GET /api/export/events': 'Export events to Excel',
-            'GET /api/export/tasks': 'Export tasks to Excel',
-            'GET /api/export/notes': 'Export notes to Excel'
+            'GET /health': 'Health check',
+            'GET /status': 'System status',
+            'GET /stats': 'Record counts',
+            'GET /stats/detailed': 'Detailed statistics',
+            'GET /overview': 'Overview with modules array',
+            'GET /modules': 'List available modules with counts',
+            'POST /sync': 'Trigger manual sync',
+            'GET /sync/logs': 'View sync history',
+            'GET /logs': 'Alias for sync logs',
+            'GET /contacts': 'List contacts (pagination)',
+            'GET /contacts/<id>': 'Get contact detail',
+            'GET /accounts': 'List accounts (pagination)',
+            'GET /accounts/<id>': 'Get account detail',
+            'GET /pipelines': 'List pipelines (pagination)',
+            'GET /pipelines/<id>': 'Get pipeline detail',
+            'GET /calls': 'List calls (pagination)',
+            'GET /events': 'List events (pagination)',
+            'GET /tasks': 'List tasks (pagination)',
+            'GET /notes': 'List notes (pagination)',
+            'GET /export/contacts': 'Export contacts to Excel',
+            'GET /export/accounts': 'Export accounts to Excel',
+            'GET /export/pipelines': 'Export pipelines to Excel',
+            'GET /export/calls': 'Export calls to Excel',
+            'GET /export/events': 'Export events to Excel',
+            'GET /export/tasks': 'Export tasks to Excel',
+            'GET /export/notes': 'Export notes to Excel'
         },
         'database': {
             'host': cfg.MYSQL_HOST,
@@ -129,7 +129,7 @@ def home():
     })
 
 
-@app.route('/api/health', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
@@ -140,7 +140,7 @@ def health_check():
     })
 
 
-@app.route('/api/status', methods=['GET'])
+@app.route('/status', methods=['GET'])
 def get_status():
     """Get system status with database info"""
     try:
@@ -171,7 +171,7 @@ def get_status():
 # OVERVIEW ENDPOINT (NEW - For Frontend)
 # ============================================================================
 
-@app.route('/api/overview', methods=['GET'])
+@app.route('/overview', methods=['GET'])
 def get_overview():
     """Get overview with modules array format for frontend"""
     try:
@@ -205,7 +205,7 @@ def get_overview():
 # MODULES ENDPOINT (UPDATED)
 # ============================================================================
 
-@app.route('/api/modules', methods=['GET'])
+@app.route('/modules', methods=['GET'])
 def list_modules():
     """List all available modules with record counts"""
     try:
@@ -228,7 +228,7 @@ def list_modules():
 # STATISTICS ENDPOINTS
 # ============================================================================
 
-@app.route('/api/stats', methods=['GET'])
+@app.route('/stats', methods=['GET'])
 def get_stats():
     """Get record counts for all modules"""
     try:
@@ -250,7 +250,7 @@ def get_stats():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/stats/detailed', methods=['GET'])
+@app.route('/stats/detailed', methods=['GET'])
 def get_detailed_stats():
     """Get detailed statistics including recent activity"""
     try:
@@ -299,7 +299,7 @@ def get_detailed_stats():
 # CONTACTS ENDPOINTS
 # ============================================================================
 
-@app.route('/api/contacts', methods=['GET'])
+@app.route('/contacts', methods=['GET'])
 def get_contacts():
     """Get contacts with pagination and filtering"""
     try:
@@ -357,7 +357,7 @@ def get_contacts():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/contacts/<int:contact_id>', methods=['GET'])
+@app.route('/contacts/<int:contact_id>', methods=['GET'])
 def get_contact_detail(contact_id):
     """Get single contact details"""
     try:
@@ -371,7 +371,7 @@ def get_contact_detail(contact_id):
 # ACCOUNTS ENDPOINTS
 # ============================================================================
 
-@app.route('/api/accounts', methods=['GET'])
+@app.route('/accounts', methods=['GET'])
 def get_accounts():
     """Get accounts with pagination and filtering"""
     try:
@@ -423,7 +423,7 @@ def get_accounts():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/accounts/<int:account_id>', methods=['GET'])
+@app.route('/accounts/<int:account_id>', methods=['GET'])
 def get_account_detail(account_id):
     """Get single account details"""
     try:
@@ -437,7 +437,7 @@ def get_account_detail(account_id):
 # PIPELINES ENDPOINTS
 # ============================================================================
 
-@app.route('/api/pipelines', methods=['GET'])
+@app.route('/pipelines', methods=['GET'])
 def get_pipelines():
     """Get pipelines with pagination and filtering"""
     try:
@@ -484,7 +484,7 @@ def get_pipelines():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/pipelines/<int:pipeline_id>', methods=['GET'])
+@app.route('/pipelines/<int:pipeline_id>', methods=['GET'])
 def get_pipeline_detail(pipeline_id):
     """Get single pipeline details"""
     try:
@@ -498,7 +498,7 @@ def get_pipeline_detail(pipeline_id):
 # CALLS, EVENTS, TASKS, NOTES ENDPOINTS
 # ============================================================================
 
-@app.route('/api/calls', methods=['GET'])
+@app.route('/calls', methods=['GET'])
 def get_calls():
     """Get calls with pagination"""
     try:
@@ -536,7 +536,7 @@ def get_calls():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/events', methods=['GET'])
+@app.route('/events', methods=['GET'])
 def get_events():
     """Get events with pagination"""
     try:
@@ -573,7 +573,7 @@ def get_events():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/tasks', methods=['GET'])
+@app.route('/tasks', methods=['GET'])
 def get_tasks():
     """Get tasks with pagination"""
     try:
@@ -610,7 +610,7 @@ def get_tasks():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/notes', methods=['GET'])
+@app.route('/notes', methods=['GET'])
 def get_notes():
     """Get notes with pagination"""
     try:
@@ -650,7 +650,7 @@ def get_notes():
 # EXPORT ENDPOINTS
 # ============================================================================
 
-@app.route('/api/export/<module>', methods=['GET'])
+@app.route('/export/<module>', methods=['GET'])
 def export_module(module):
     """Export module data to Excel"""
     try:
@@ -688,6 +688,7 @@ def export_module(module):
 
         return send_file(
             output,
+            # mimetype is the correct spelling, it was correct in your code
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
             download_name=filename
@@ -700,7 +701,7 @@ def export_module(module):
 # SYNC ENDPOINTS (UPDATED)
 # ============================================================================
 
-@app.route('/api/sync', methods=['POST'])
+@app.route('/sync', methods=['POST'])
 def trigger_sync():
     """Trigger manual synchronization with proper response format"""
     try:
@@ -746,7 +747,7 @@ def trigger_sync():
         }), 500
 
 
-@app.route('/api/sync/logs', methods=['GET'])
+@app.route('/sync/logs', methods=['GET'])
 def get_sync_logs():
     """Get sync history logs"""
     try:
@@ -772,13 +773,13 @@ def get_sync_logs():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/logs', methods=['GET'])
+@app.route('/logs', methods=['GET'])
 def get_logs_alias():
     """Alias for /api/sync/logs for backward compatibility"""
     return get_sync_logs()
 
 
-@app.route('/api/sync_logs', methods=['GET'])
+@app.route('/sync_logs', methods=['GET'])
 def sync_logs_alias():
     """Another alias for /api/sync/logs for backward compatibility"""
     return get_sync_logs()
