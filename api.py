@@ -10,12 +10,15 @@ from flask_sqlalchemy import SQLAlchemy
 from config import Config
 from models import db, Contact, Account, Pipeline, Call, Event, Task, Note, SyncLog
 from zoho_client import ZohoClient
-from scheduler import start_scheduler, manual_sync
+from scheduler import start_scheduler
+from sync_service import manual_sync
 from datetime import datetime, timedelta, UTC # CHANGE 1: Added UTC for timezone-aware datetime
 import traceback
 import os
 import io
 import pandas as pd
+
+API_PREFIX = "/api"
 
 ## Initialize Flask app
 app = Flask(__name__)
@@ -129,7 +132,7 @@ def home():
     })
 
 
-@app.route('/health', methods=['GET'])
+@app.route(API_PREFIX +'/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
@@ -140,7 +143,7 @@ def health_check():
     })
 
 
-@app.route('/status', methods=['GET'])
+@app.route(API_PREFIX +'/status', methods=['GET'])
 def get_status():
     """Get system status with database info"""
     try:
@@ -171,7 +174,7 @@ def get_status():
 # OVERVIEW ENDPOINT (NEW - For Frontend)
 # ============================================================================
 
-@app.route('/overview', methods=['GET'])
+@app.route(API_PREFIX +'/overview', methods=['GET'])
 def get_overview():
     """Get overview with modules array format for frontend"""
     try:
@@ -205,7 +208,7 @@ def get_overview():
 # MODULES ENDPOINT (UPDATED)
 # ============================================================================
 
-@app.route('/modules', methods=['GET'])
+@app.route(API_PREFIX +'/modules', methods=['GET'])
 def list_modules():
     """List all available modules with record counts"""
     try:
@@ -228,7 +231,7 @@ def list_modules():
 # STATISTICS ENDPOINTS
 # ============================================================================
 
-@app.route('/stats', methods=['GET'])
+@app.route(API_PREFIX +'/stats', methods=['GET'])
 def get_stats():
     """Get record counts for all modules"""
     try:
@@ -299,7 +302,7 @@ def get_detailed_stats():
 # CONTACTS ENDPOINTS
 # ============================================================================
 
-@app.route('/contacts', methods=['GET'])
+@app.route(API_PREFIX +'/contacts', methods=['GET'])
 def get_contacts():
     """Get contacts with pagination and filtering"""
     try:
@@ -371,7 +374,7 @@ def get_contact_detail(contact_id):
 # ACCOUNTS ENDPOINTS
 # ============================================================================
 
-@app.route('/accounts', methods=['GET'])
+@app.route(API_PREFIX +'/accounts', methods=['GET'])
 def get_accounts():
     """Get accounts with pagination and filtering"""
     try:
@@ -423,7 +426,7 @@ def get_accounts():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/accounts/<int:account_id>', methods=['GET'])
+@app.route(API_PREFIX +'/accounts/<int:account_id>', methods=['GET'])
 def get_account_detail(account_id):
     """Get single account details"""
     try:
@@ -437,7 +440,7 @@ def get_account_detail(account_id):
 # PIPELINES ENDPOINTS
 # ============================================================================
 
-@app.route('/pipelines', methods=['GET'])
+@app.route(API_PREFIX +'/pipelines', methods=['GET'])
 def get_pipelines():
     """Get pipelines with pagination and filtering"""
     try:
@@ -484,7 +487,7 @@ def get_pipelines():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/pipelines/<int:pipeline_id>', methods=['GET'])
+@app.route(API_PREFIX +'/pipelines/<int:pipeline_id>', methods=['GET'])
 def get_pipeline_detail(pipeline_id):
     """Get single pipeline details"""
     try:
@@ -498,7 +501,7 @@ def get_pipeline_detail(pipeline_id):
 # CALLS, EVENTS, TASKS, NOTES ENDPOINTS
 # ============================================================================
 
-@app.route('/calls', methods=['GET'])
+@app.route(API_PREFIX +'/calls', methods=['GET'])
 def get_calls():
     """Get calls with pagination"""
     try:
@@ -536,7 +539,7 @@ def get_calls():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/events', methods=['GET'])
+@app.route(API_PREFIX +'/events', methods=['GET'])
 def get_events():
     """Get events with pagination"""
     try:
@@ -573,7 +576,7 @@ def get_events():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/tasks', methods=['GET'])
+@app.route(API_PREFIX +'/tasks', methods=['GET'])
 def get_tasks():
     """Get tasks with pagination"""
     try:
@@ -610,7 +613,7 @@ def get_tasks():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/notes', methods=['GET'])
+@app.route(API_PREFIX +'/notes', methods=['GET'])
 def get_notes():
     """Get notes with pagination"""
     try:
@@ -650,7 +653,7 @@ def get_notes():
 # EXPORT ENDPOINTS
 # ============================================================================
 
-@app.route('/export/<module>', methods=['GET'])
+@app.route(API_PREFIX +'/export/<module>', methods=['GET'])
 def export_module(module):
     """Export module data to Excel"""
     try:
@@ -701,7 +704,7 @@ def export_module(module):
 # SYNC ENDPOINTS (UPDATED)
 # ============================================================================
 
-@app.route('/sync', methods=['POST'])
+@app.route(API_PREFIX +'/sync', methods=['POST'])
 def trigger_sync():
     """Trigger manual synchronization with proper response format"""
     try:
@@ -747,7 +750,7 @@ def trigger_sync():
         }), 500
 
 
-@app.route('/sync/logs', methods=['GET'])
+@app.route(API_PREFIX +'/sync/logs', methods=['GET'])
 def get_sync_logs():
     """Get sync history logs"""
     try:
@@ -773,13 +776,13 @@ def get_sync_logs():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/logs', methods=['GET'])
+@app.route(API_PREFIX +'/logs', methods=['GET'])
 def get_logs_alias():
     """Alias for /api/sync/logs for backward compatibility"""
     return get_sync_logs()
 
 
-@app.route('/sync_logs', methods=['GET'])
+@app.route(API_PREFIX +'/sync_logs', methods=['GET'])
 def sync_logs_alias():
     """Another alias for /api/sync/logs for backward compatibility"""
     return get_sync_logs()
