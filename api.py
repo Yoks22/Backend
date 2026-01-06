@@ -27,7 +27,7 @@ app = Flask(__name__)
 load_dotenv()
 
 # 2. Get origins from .env or use a default if .env is missing
-env_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+env_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*") 
 allowed_origins = [origin.strip() for origin in env_origins.split(",")]
 
 cfg = Config()
