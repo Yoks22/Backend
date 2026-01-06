@@ -37,7 +37,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # 3. Apply the dynamic origins to CORS
 CORS(app, resources={
     r"/*": {
-        "origins": allowed_origins,
+        "origins": allowed_origins, # This allows all by default if .env is missing
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "supports_credentials": True
