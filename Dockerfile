@@ -21,5 +21,5 @@ COPY . .
 # Expose the Flask port
 EXPOSE 5000
 
-# Run the application
-CMD ["python", "api.py"]
+# Change the last line of your Dockerfile to this:
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "api:app"]
