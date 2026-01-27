@@ -14,7 +14,7 @@ class Config:
     MYSQL_DB = os.getenv("MYSQL_DB") #, "zoho_db")
 
     # URL encode credentials (MANDATORY for special chars)
-    ENCODED_USER = quote_plus(MYSQL_USER)
+    ENCODED_USER: str = quote_plus(MYSQL_USER)
     ENCODED_PASSWORD = quote_plus(MYSQL_PASSWORD)
 
     # SQLAlchemy connection string

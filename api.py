@@ -1,6 +1,6 @@
 """
 Flask REST API Backend for Zoho Bigin Integration
-Consolidated version with all features - CORRECTED
+Consolidated version with all features - CORRECTED + Pipeline Deals
 """
 
 from flask import Flask, jsonify, request, send_file
@@ -12,7 +12,7 @@ from models import db, Contact, Account, Pipeline, Call, Event, Task, Note, Sync
 from zoho_client import ZohoClient
 from scheduler import start_scheduler
 from sync_service import manual_sync
-from datetime import datetime, timedelta, UTC # CHANGE 1: Added UTC for timezone-aware datetime
+from datetime import datetime, timedelta, UTC
 import traceback
 import os
 import io
@@ -37,7 +37,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # 3. Apply the dynamic origins to CORS
 CORS(app, resources={
     r"/*": {
-        "origins": allowed_origins, # This allows all by default if .env is missing
+        "origins": allowed_origins,
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "supports_credentials": True
@@ -94,7 +94,7 @@ def home():
         'message': 'Zoho Bigin Sync API',
         'version': '2.0',
         'status': 'running',
-        'frontend': 'http://localhost:3000',
+        'frontend': 'https://etl.spiotsystem.com:3000',
         'endpoints': {
             'GET /': 'API documentation',
             'GET /health': 'Health check',
@@ -112,6 +112,8 @@ def home():
             'GET /accounts/<id>': 'Get account detail',
             'GET /pipelines': 'List pipelines (pagination)',
             'GET /pipelines/<id>': 'Get pipeline detail',
+            'GET /pipelines/settings': 'Get available pipeline settings from Zoho',
+            'GET /pipelines/<pipeline_id>/deals': 'Get deals for specific pipeline from Zoho',
             'GET /calls': 'List calls (pagination)',
             'GET /events': 'List events (pagination)',
             'GET /tasks': 'List tasks (pagination)',
@@ -132,12 +134,12 @@ def home():
     })
 
 
-@app.route(API_PREFIX +'/health', methods=['GET'])
+@app.route(API_PREFIX + '/stats/detailed', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'timestamp': datetime.now(UTC).isoformat(), # CHANGE 2: Fix DeprecationWarning
+        'timestamp': datetime.now(UTC).isoformat(),
         'database': 'connected',
         'api_version': '2.0'
     })
@@ -152,7 +154,7 @@ def get_status():
 
         return jsonify({
             'status': 'online',
-            'timestamp': datetime.now(UTC).isoformat(), # CHANGE 3: Fix DeprecationWarning
+            'timestamp': datetime.now(UTC).isoformat(),
             'database': {
                 'status': 'connected',
                 'host': cfg.MYSQL_HOST,
@@ -195,7 +197,7 @@ def get_overview():
                 'records_synced': last_sync.records_synced if last_sync else 0,
                 'finished_at': last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None
             },
-            'timestamp': datetime.now(UTC).isoformat() # CHANGE 4: Fix DeprecationWarning (Corresponds to line 189 in your log snippet)
+            'timestamp': datetime.now(UTC).isoformat()
         })
     except Exception as e:
         return jsonify({
@@ -218,7 +220,7 @@ def list_modules():
         return jsonify({
             'ok': True,
             'modules': modules,
-            'timestamp': datetime.now(UTC).isoformat() # CHANGE 5: Fix DeprecationWarning (Corresponds to line 212 in your log snippet)
+            'timestamp': datetime.now(UTC).isoformat()
         })
     except Exception as e:
         return jsonify({
@@ -247,7 +249,7 @@ def get_stats():
                 'timestamp': last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None,
                 'status': last_sync.status if last_sync else None
             },
-            'timestamp': datetime.now(UTC).isoformat() # CHANGE 6: Fix DeprecationWarning
+            'timestamp': datetime.now(UTC).isoformat()
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -261,7 +263,7 @@ def get_detailed_stats():
         stats = get_module_stats()
 
         # Recent activity (last 7 days)
-        week_ago = datetime.now(UTC) - timedelta(days=7) # Note: Comparing naive/aware is usually bad, but this code is already written. Let's make this aware for consistency. The database created_time columns should ideally be aware.
+        week_ago = datetime.now(UTC) - timedelta(days=7)
         recent_stats = {
             'contacts': Contact.query.filter(Contact.created_time >= week_ago).count(),
             'accounts': Account.query.filter(Account.created_time >= week_ago).count(),
@@ -292,7 +294,7 @@ def get_detailed_stats():
             'total_counts': stats,
             'recent_activity': recent_stats,
             'pipeline_by_stage': pipeline_by_stage,
-            'timestamp': datetime.now(UTC).isoformat() # CHANGE 7: Fix DeprecationWarning
+            'timestamp': datetime.now(UTC).isoformat()
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -302,13 +304,13 @@ def get_detailed_stats():
 # CONTACTS ENDPOINTS
 # ============================================================================
 
-@app.route(API_PREFIX +'/contacts', methods=['GET'])
+@app.route(API_PREFIX + '/contacts/<int:contact_id>', methods=['GET'])
 def get_contacts():
     """Get contacts with pagination and filtering"""
     try:
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
-        per = request.args.get('per', per_page, type=int)  # Support both per_page and per
+        per = request.args.get('per', per_page, type=int)
         search = request.args.get('search', '')
 
         query = Contact.query
@@ -345,7 +347,7 @@ def get_contacts():
 
         return jsonify({
             'contacts': contacts,
-            'items': contacts,  # Alias for compatibility
+            'items': contacts,
             'pagination': {
                 'page': page,
                 'per_page': per,
@@ -495,6 +497,95 @@ def get_pipeline_detail(pipeline_id):
         return jsonify(pipeline.to_dict())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# NEW: PIPELINE SETTINGS & DEALS ENDPOINTS
+# ============================================================================
+
+@app.route(API_PREFIX +'/pipelines/settings', methods=['GET'])
+def get_pipeline_settings():
+    """Get available pipelines from Zoho Bigin settings"""
+    try:
+        url = f"{cfg.BASE_URL}/bigin/v2/settings/pipelines"
+        headers = client._get_headers()
+        
+        response = client.session.get(url, headers=headers)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        return jsonify({
+            'ok': True,
+            'pipelines': data.get('pipelines', []),
+            'timestamp': datetime.now(UTC).isoformat()
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'ok': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route(API_PREFIX +'/pipelines/<pipeline_id>/deals', methods=['GET'])
+def get_pipeline_deals(pipeline_id):
+    """Get deals for a specific pipeline from Zoho Bigin
+    
+    Example: /api/pipelines/629996000001946043/deals
+    """
+    try:
+        # Pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 200, type=int)
+        
+        url = f"{cfg.BASE_URL}/bigin/v2/Pipelines/{pipeline_id}/Deals"
+        headers = client._get_headers()
+        
+        params = {
+            'page': page,
+            'per_page': per_page
+        }
+        
+        response = client.session.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        data = response.json()
+        deals = data.get('data', [])
+        
+        # Format deals for easier consumption
+        formatted_deals = []
+        for deal in deals:
+            formatted_deals.append({
+                'id': deal.get('id'),
+                'deal_name': deal.get('Deal_Name'),
+                'stage': deal.get('Stage'),
+                'amount': deal.get('Amount'),
+                'closing_date': deal.get('Closing_Date'),
+                'pipeline': deal.get('Pipeline'),
+                'account_name': deal.get('Account_Name', {}).get('name') if isinstance(deal.get('Account_Name'), dict) else deal.get('Account_Name'),
+                'owner': deal.get('Owner', {}).get('name') if isinstance(deal.get('Owner'), dict) else None,
+                'probability': deal.get('Probability'),
+                'created_time': deal.get('Created_Time'),
+                'modified_time': deal.get('Modified_Time'),
+                'raw_data': deal  # Include full raw data for reference
+            })
+        
+        return jsonify({
+            'ok': True,
+            'pipeline_id': pipeline_id,
+            'deals': formatted_deals,
+            'count': len(formatted_deals),
+            'info': data.get('info', {}),
+            'timestamp': datetime.now(UTC).isoformat()
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'ok': False,
+            'error': str(e),
+            'pipeline_id': pipeline_id
+        }), 500
 
 
 # ============================================================================
@@ -653,7 +744,7 @@ def get_notes():
 # EXPORT ENDPOINTS
 # ============================================================================
 
-@app.route(API_PREFIX +'/export/<module>', methods=['GET'])
+@app.route(API_PREFIX + '/export/<string:module>', methods=['GET'])
 def export_module(module):
     """Export module data to Excel"""
     try:
@@ -691,7 +782,6 @@ def export_module(module):
 
         return send_file(
             output,
-            # mimetype is the correct spelling, it was correct in your code
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
             download_name=filename
@@ -737,7 +827,7 @@ def trigger_sync():
             'message': message,
             'result': result,
             'details': details,
-            'timestamp': datetime.now(UTC).isoformat() # CHANGE 8: Fix DeprecationWarning (Corresponds to line 730 in your log snippet)
+            'timestamp': datetime.now(UTC).isoformat()
         })
     except Exception as e:
         traceback.print_exc()
@@ -746,7 +836,7 @@ def trigger_sync():
             'success': False,
             'error': str(e),
             'message': str(e),
-            'timestamp': datetime.now(UTC).isoformat() # CHANGE 9: Fix DeprecationWarning
+            'timestamp': datetime.now(UTC).isoformat()
         }), 500
 
 
@@ -835,4 +925,4 @@ if __name__ == '__main__':
     print(f"📊 Database: {cfg.MYSQL_DB}")
     print("=" * 60 + "\n")
 
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
