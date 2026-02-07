@@ -37,9 +37,9 @@ class Config:
     CLIENT_ID = os.getenv('ZOHO_CLIENT_ID', '1000.GXPK7PLQD9SPH5G1MX6XB1Y3QBTXXN')
     CLIENT_SECRET = os.getenv('ZOHO_CLIENT_SECRET', '26832a9fc42886a569e9e41f5fce59d059375a3ae5')
     ACCESS_TOKEN = os.getenv('ZOHO_ACCESS_TOKEN',
-                             '1000.9e59c7fd613af26575ae647baf7acf9f.5726a3090a451059ced5c1b0e0b9d9b6')
+                             '1000.f5c53cbc925c95606ff5ce0008c4849a.b5b8fb04d04359328dc9a4ebd68d4ade')
     REFRESH_TOKEN = os.getenv('ZOHO_REFRESH_TOKEN',
-                              '1000.c133aa9661edd22553c3ee2bfb64572b.0f2497c83088b9d15edddd3cb91bd9cb')
+                              '1000.9694d31c873dcf3ac3017bb9af4c5d44.1f67e7d0f249f8c02c838d1673d4b2c7')
 
     # Zoho India DC endpoints
     API_DOMAIN = os.getenv('ZOHO_API_DOMAIN', 'www.zohoapis.in')
