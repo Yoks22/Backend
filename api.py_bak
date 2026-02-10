@@ -328,7 +328,7 @@ def get_contacts():
 
         # FIXED: Handle NULL values and ensure consistent ordering
         query = query.order_by(
-            Contact.created_time.desc(),
+            Contact.created_time.desc().nullslast(),
             Contact.id.desc()
         )
 
@@ -404,7 +404,7 @@ def get_accounts():
 
         # FIXED: Handle NULL values and ensure consistent ordering
         query = query.order_by(
-            Account.created_time.desc(),
+            Account.created_time.desc().nullslast(),
             Account.id.desc()
         )
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -472,7 +472,7 @@ def get_pipelines():
 
         # FIXED: Handle NULL values and ensure consistent ordering
         query = query.order_by(
-            Pipeline.created_time.desc(),
+            Pipeline.created_time.desc().nullslast(),
             Pipeline.id.desc()
         )
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -534,7 +534,7 @@ def get_calls():
 
         # FIXED: Handle NULL values and ensure consistent ordering
         query = Call.query.order_by(
-            Call.created_time.desc(),
+            Call.created_time.desc().nullslast(),
             Call.id.desc()
         )
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -585,7 +585,7 @@ def get_events():
 
         # FIXED: Handle NULL values and ensure consistent ordering
         query = Event.query.order_by(
-            Event.start_datetime.desc(),
+            Event.start_datetime.desc().nullslast(),
             Event.id.desc()
         )
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -635,7 +635,7 @@ def get_tasks():
 
         # FIXED: Handle NULL values and ensure consistent ordering
         query = Task.query.order_by(
-            Task.due_date.desc(),
+            Task.due_date.desc().nullslast(),
             Task.id.desc()
         )
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
@@ -685,7 +685,7 @@ def get_notes():
 
         # FIXED: Handle NULL values and ensure consistent ordering
         query = Note.query.order_by(
-            Note.created_time.desc(),
+            Note.created_time.desc().nullslast(),
             Note.id.desc()
         )
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
